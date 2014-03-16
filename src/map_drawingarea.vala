@@ -33,6 +33,11 @@ public class MapDrawingArea : TiledMapDrawingArea, ISelectTiles, IPaintTiles {
 	 */
 	protected Rect tile_selector {get; set; default = Rect (0, 0, 0, 0);}
 
+	/*
+	 * What button is currently down.
+	 */
+	private int current_button = 0;
+
 	/**
 	 * Builds the map DrawingArea.
 	 */
@@ -376,6 +381,9 @@ public class MapDrawingArea : TiledMapDrawingArea, ISelectTiles, IPaintTiles {
 			return false;
 		}
 
+		// Store the current button for use in click-and-drag handling
+		current_button = 1;
+
 		switch (this.get_current_drawing_tool ()) {
 			case DrawingTool.PEN:
 				this.paint_with_pencil (this.palette.tile_selector);
@@ -399,6 +407,9 @@ public class MapDrawingArea : TiledMapDrawingArea, ISelectTiles, IPaintTiles {
 	 * Manages the reactions to button release signals.
 	 */
 	public bool on_button_released (Gdk.EventButton event) {
+
+		current_button = 0;
+
 		switch (event.button) {
 			case 1:
 				return this.on_left_click_released (event);
@@ -429,6 +440,9 @@ public class MapDrawingArea : TiledMapDrawingArea, ISelectTiles, IPaintTiles {
 		// Clear the drawn selector rect
 		this.tile_selector = Rect (0, 0, 0, 0);
 
+        // Clear the current button
+        current_button = 0;
+
 		// Redraw the DrawingArea
 		this.queue_draw ();
 
@@ -439,6 +453,18 @@ public class MapDrawingArea : TiledMapDrawingArea, ISelectTiles, IPaintTiles {
 	 * Manages the reactions to the motion event.
 	 */
 	public bool on_motion (Gdk.EventMotion event) {
+
+		switch (current_button) {
+			case 1:
+				return this.on_left_drag (event);
+
+			case 0: // Deliberate fall-through so I don't break anything else.
+			default:
+				return this.on_mouse_motion (event);
+		}
+	}
+
+    public bool on_mouse_motion (Gdk.EventMotion event) {
 		int x = ((int) event.x) / this.get_scaled_tile_width ();
 		int y = ((int) event.y) / this.get_scaled_tile_height ();
 
@@ -458,6 +484,61 @@ public class MapDrawingArea : TiledMapDrawingArea, ISelectTiles, IPaintTiles {
 		if (new_tile_selector != this.tile_selector) {
 			// Update the tile selector
 			this.tile_selector = new_tile_selector;
+
+			this.queue_draw ();
+		}
+
+		return true;
+	}
+
+	/**
+	 * Keep filling in cells as we're dragged.
+	 */
+	public bool on_left_drag (Gdk.EventMotion event) {
+
+		// If the selection is empty, stop the process
+		if (this.tile_selector == Rect (0, 0, 0, 0)) {
+			return false;
+		}
+
+		// Disable click-and-drag on event layer
+		// TODO: The event layer behaves differently
+		if (this.get_current_layer () == LayerType.EVENT) {
+			return false;
+		}
+
+		int x = ((int) event.x) / this.get_scaled_tile_width ();
+		int y = ((int) event.y) / this.get_scaled_tile_height ();
+
+		// Get the selection width and height
+		Rect palette_selector = this.palette.tile_selector;
+		palette_selector.normalize ();
+
+		int width = palette_selector.width;
+		int height = palette_selector.height;
+
+		if (x < 0 || x >= this.get_width_in_tiles () || y < 0 || y >= this.get_height_in_tiles ()) {
+			return false;
+		}
+
+		Rect new_tile_selector = Rect (x, y, width, height);
+
+		if (new_tile_selector != this.tile_selector) {
+
+			switch (this.get_current_drawing_tool ()) {
+				case DrawingTool.PEN:
+					this.apply_painted_tiles (this.get_current_layer ());
+
+					// Update the tile selector
+					this.tile_selector = new_tile_selector;
+
+					// Paint when dragging as well.
+					this.paint_with_pencil (this.palette.tile_selector);
+					break;
+
+				default:
+					return false;
+			}
 
 			this.queue_draw ();
 		}
